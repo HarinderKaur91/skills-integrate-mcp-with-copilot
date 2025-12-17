@@ -14,7 +14,10 @@ from pathlib import Path
 # Database
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from .models import Base, Activity, Participant
+try:
+    from .models import Base, Activity, Participant
+except ImportError:
+    from models import Base, Activity, Participant
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
