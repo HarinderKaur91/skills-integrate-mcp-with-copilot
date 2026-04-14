@@ -5,19 +5,23 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import os
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 
 # Database
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 try:
-    from .models import Base, Activity, Participant
+    from .models import Base, Activity, Participant, Student
 except ImportError:
-    from models import Base, Activity, Participant
+    from models import Base, Activity, Participant, Student
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
@@ -26,6 +30,56 @@ app = FastAPI(title="Mergington High School API",
 current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
+
+# ── Auth configuration ──────────────────────────────────────────────────────
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    import secrets
+    SECRET_KEY = secrets.token_hex(32)
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def get_current_student(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    session = SessionLocal()
+    try:
+        student = session.query(Student).filter(Student.email == email).first()
+        if student is None:
+            raise credentials_exception
+        return {"email": student.email, "name": student.name}
+    finally:
+        session.close()
 
 # Seed data (used to initialize the database if empty)
 seed_activities = {
@@ -215,6 +269,15 @@ SessionLocal = sessionmaker(bind=engine)
 # Create tables
 Base.metadata.create_all(bind=engine)
 
+# Demo student accounts (email -> {password, name})
+seed_students = {
+    "emma@mergington.edu": {"password": "password123", "name": "Emma Johnson"},
+    "sophia@mergington.edu": {"password": "password123", "name": "Sophia Williams"},
+    "alex@mergington.edu": {"password": "password123", "name": "Alex Brown"},
+    "lucas@mergington.edu": {"password": "password123", "name": "Lucas Davis"},
+    "maya@mergington.edu": {"password": "password123", "name": "Maya Martinez"},
+}
+
 # Seed DB if empty
 def seed_database():
     session = SessionLocal()
@@ -229,6 +292,18 @@ def seed_database():
                     p = Participant(email=email, activity_id=act.id)
                     session.add(p)
             session.commit()
+
+        # Seed demo student accounts if none exist
+        any_student = session.query(Student).first()
+        if any_student is None:
+            for email, info in seed_students.items():
+                student = Student(
+                    email=email,
+                    hashed_password=hash_password(info["password"]),
+                    name=info["name"]
+                )
+                session.add(student)
+            session.commit()
     finally:
         session.close()
 
@@ -238,6 +313,55 @@ seed_database()
 @app.get("/")
 def root():
     return RedirectResponse(url="/static/index.html")
+
+
+# ── Auth endpoints ───────────────────────────────────────────────────────────
+
+@app.post("/auth/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """Authenticate a student and return a JWT access token"""
+    session = SessionLocal()
+    try:
+        student = session.query(Student).filter(Student.email == form_data.username).first()
+        if not student or not verify_password(form_data.password, student.hashed_password):
+            raise HTTPException(
+                status_code=401,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        access_token = create_access_token(data={"sub": student.email})
+        return {"access_token": access_token, "token_type": "bearer"}
+    finally:
+        session.close()
+
+
+@app.post("/auth/logout")
+def logout(current_student: dict = Depends(get_current_student)):
+    """Logout the current student (client should discard the token)"""
+    return {"message": "Logged out successfully"}
+
+
+# ── Student endpoints ────────────────────────────────────────────────────────
+
+@app.get("/students/me")
+def get_my_profile(current_student: dict = Depends(get_current_student)):
+    """Get the profile of the currently authenticated student"""
+    session = SessionLocal()
+    try:
+        email = current_student["email"]
+        enrolled = (
+            session.query(Activity.name)
+            .join(Participant, Participant.activity_id == Activity.id)
+            .filter(Participant.email == email)
+            .all()
+        )
+        return {
+            "email": current_student["email"],
+            "name": current_student["name"],
+            "enrolled_activities": [row.name for row in enrolled],
+        }
+    finally:
+        session.close()
 
 
 @app.get("/activities")
@@ -263,8 +387,9 @@ def get_activities(category: str = None):
 
 
 @app.post("/activities/{activity_name}/signup")
-def signup_for_activity(activity_name: str, email: str):
-    """Sign up a student for an activity"""
+def signup_for_activity(activity_name: str, current_student: dict = Depends(get_current_student)):
+    """Sign up the authenticated student for an activity"""
+    email = current_student["email"]
     session = SessionLocal()
     try:
         act = session.query(Activity).filter(Activity.name == activity_name).first()
@@ -287,8 +412,9 @@ def signup_for_activity(activity_name: str, email: str):
 
 
 @app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str):
-    """Unregister a student from an activity"""
+def unregister_from_activity(activity_name: str, current_student: dict = Depends(get_current_student)):
+    """Unregister the authenticated student from an activity"""
+    email = current_student["email"]
     session = SessionLocal()
     try:
         act = session.query(Activity).filter(Activity.name == activity_name).first()
@@ -304,3 +430,4 @@ def unregister_from_activity(activity_name: str, email: str):
         return {"message": f"Unregistered {email} from {activity_name}"}
     finally:
         session.close()
+

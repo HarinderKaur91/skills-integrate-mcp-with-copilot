@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mergington High School - Login</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Mergington High School</h1>
+      <h2>Student Login</h2>
+      <div style="display: flex; justify-content: center; align-items: center; gap: 10px;">
+        <img class="octodex-mascot" src="https://octodex.github.com/images/original.png" alt="GitHub Octocat" />
+        <img class="octodex-mascot" src="https://octodex.github.com/images/Professortocat_v2.png" alt="Professor Octocat" />
+        <img class="octodex-mascot" src="https://octodex.github.com/images/jetpacktocat.png" alt="Jetpack Octocat" />
+      </div>
+    </header>
+
+    <main style="justify-content: center;">
+      <section style="max-width: 420px; width: 100%;">
+        <h3>Sign In</h3>
+        <form id="login-form">
+          <div class="form-group">
+            <label for="email">Student Email:</label>
+            <input type="email" id="email" required placeholder="your-email@mergington.edu" />
+          </div>
+          <div class="form-group">
+            <label for="password">Password:</label>
+            <input type="password" id="password" required placeholder="Your password" />
+          </div>
+          <button type="submit" style="width: 100%;">Login</button>
+        </form>
+        <div id="message" class="hidden" style="margin-top: 15px;"></div>
+        <p style="margin-top: 20px; text-align: center; color: #666; font-size: 14px;">
+          Demo accounts: <strong>emma@mergington.edu</strong> (password: <em>password123</em>)
+        </p>
+        <p style="margin-top: 10px; text-align: center;">
+          <a href="/static/index.html" style="color: #228b22;">← Back to Activities</a>
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <p>&copy; 2023 Mergington High School</p>
+    </footer>
+
+    <script>
+      // If already logged in, redirect to main page
+      if (localStorage.getItem("auth_token")) {
+        window.location.href = "/static/index.html";
+      }
+
+      document.getElementById("login-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const messageDiv = document.getElementById("message");
+        const email = document.getElementById("email").value;
+        const password = document.getElementById("password").value;
+
+        try {
+          const formData = new URLSearchParams();
+          formData.append("username", email);
+          formData.append("password", password);
+
+          const response = await fetch("/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formData.toString(),
+          });
+
+          const result = await response.json();
+
+          if (response.ok) {
+            localStorage.setItem("auth_token", result.access_token);
+            window.location.href = "/static/index.html";
+          } else {
+            messageDiv.textContent = result.detail || "Login failed. Please try again.";
+            messageDiv.className = "error";
+            messageDiv.classList.remove("hidden");
+          }
+        } catch (error) {
+          messageDiv.textContent = "Login failed. Please try again.";
+          messageDiv.className = "error";
+          messageDiv.classList.remove("hidden");
+          console.error("Login error:", error);
+        }
+      });
+    </script>
+  </body>
+</html>
