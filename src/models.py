@@ -23,3 +23,11 @@ class Participant(Base):
     activity_id = Column(Integer, ForeignKey("activities.id"), nullable=False)
 
     activity = relationship("Activity", back_populates="participants")
+
+
+class Student(Base):
+    __tablename__ = "students"
+    id = Column(Integer, primary_key=True)
+    email = Column(String, unique=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    name = Column(String, nullable=True)

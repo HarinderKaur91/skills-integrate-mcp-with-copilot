@@ -15,9 +15,27 @@
         <img class="octodex-mascot" src="https://octodex.github.com/images/Professortocat_v2.png" alt="Professor Octocat" />
         <img class="octodex-mascot" src="https://octodex.github.com/images/jetpacktocat.png" alt="Jetpack Octocat" />
       </div>
+      <div id="auth-bar" class="auth-bar">
+        <span id="auth-greeting" class="hidden"></span>
+        <a href="/static/login.html" id="login-link" class="auth-link">Login</a>
+        <button id="logout-btn" class="auth-link logout-btn hidden">Logout</button>
+      </div>
     </header>
 
     <main>
+      <!-- Student profile panel (shown when logged in) -->
+      <section id="profile-container" class="hidden">
+        <h3>My Profile</h3>
+        <div id="profile-info">
+          <p><strong>Email:</strong> <span id="profile-email"></span></p>
+          <p><strong>Name:</strong> <span id="profile-name"></span></p>
+          <div id="profile-activities">
+            <strong>My Activities:</strong>
+            <ul id="enrolled-list"></ul>
+          </div>
+        </div>
+      </section>
+
       <section id="activities-container">
         <h3>Available Activities</h3>
         <div id="activities-list">
@@ -28,11 +46,10 @@
 
       <section id="signup-container">
         <h3>Sign Up for an Activity</h3>
+        <div id="auth-notice" class="info hidden" style="margin-bottom: 15px;">
+          Please <a href="/static/login.html">login</a> to sign up for activities.
+        </div>
         <form id="signup-form">
-          <div class="form-group">
-            <label for="email">Student Email:</label>
-            <input type="email" id="email" required placeholder="your-email@mergington.edu" />
-          </div>
           <div class="form-group">
             <label for="activity">Select Activity:</label>
             <select id="activity" required>
